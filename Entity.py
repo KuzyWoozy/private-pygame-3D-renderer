@@ -2,8 +2,7 @@ import pygame as pg
 import numpy as np
 from typing import Tuple
 
-FOV = 20
-
+FOV = 90
 
 class EntityRectangle():
     def __init__(self, center: Tuple[float, float, float], size: Tuple[float, float, float], angle: Tuple[float, float, float]) -> None:
@@ -13,7 +12,8 @@ class EntityRectangle():
         self.half_size = self.size/2
         self.center = np.array([center[0], center[1], center[2]])
         
-
+        self.edge_width = 2
+        self.colour = (255, 0, 0)
 
         self.mask = np.array([
                             [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
@@ -33,7 +33,7 @@ class EntityRectangle():
     def _calculateDots(self) -> np.ndarray:
         # Draw dots
         return self.center + (self.half_size * np.sum(self.mask, axis=-2))
-    
+        
     def move(self, x_dist: float, y_dist: float, z_dist: float) -> None:
         self.center[0] += x_dist
         self.center[1] += y_dist
@@ -59,41 +59,43 @@ class EntityRectangle():
     def blit(self, surf: pg.surface.Surface) -> None:
         global FOV
 
-        s_x, s_y = surf.get_size()[0]/2, surf.get_size()[1]/2
+        # sh == screen half
+        sh_x, sh_y = surf.get_size()[0]/2, surf.get_size()[1]/2
         # Calculate the offset of the eye based on the desired vertical field of view
-        eye_offset = (s_y/2)/np.tan(FOV/2)
-
+        eye_offset = sh_y/(np.tan((np.pi/180) * (FOV/2)))
 
         dots = self._calculateDots()
         
-        new_dots = []
-        for (x, y, z) in dots:
-            
-            z = z + eye_offset
-            
-            y_angle = np.arctan(y/z)
-            new_y = eye_offset * np.tan(y_angle) 
+        # Add the offset to the z axis
+        dots[:, 2] += eye_offset
 
-            x_angle = np.arctan(x/z)
-            new_x = eye_offset * np.tan(x_angle)
-            
-            new_dots.append([new_x+s_x, new_y+s_y])
+        # tan and arctan cancel out
+        dots[:, 1] = eye_offset * (dots[:, 1]/dots[:, 2])
+        dots[:, 0] = eye_offset * (dots[:, 0]/dots[:, 2])
+
+        # Shift origin to pygame position
+        dots[:, 1] += sh_y
+        dots[:, 0] += sh_x
         
-        edges = [[new_dots[0], new_dots[1], new_dots[2], new_dots[3]],
-            [new_dots[2], new_dots[3], new_dots[4], new_dots[5]],
-            [new_dots[0], new_dots[3], new_dots[4], new_dots[7]],
-            [new_dots[1], new_dots[2], new_dots[5], new_dots[6]],
-            [new_dots[0], new_dots[1], new_dots[6], new_dots[7]],
-            [new_dots[4], new_dots[5], new_dots[6], new_dots[7]]]
+        # Get rid of z-axis as we have finished projecting points onto screen
+        dots = np.delete(dots, 2, -1)
+
+        edges = np.array([
+                [dots[0], dots[1], dots[2], dots[3]],
+                [dots[2], dots[3], dots[4], dots[5]],
+                [dots[4], dots[5], dots[6], dots[7]],
+                [dots[6], dots[7], dots[0], dots[1]],
+                [dots[0], dots[3], dots[4], dots[7]],
+                [dots[1], dots[2], dots[5], dots[6]]
+                ])
 
         for edge in edges:
-            pg.draw.polygon(surf, (255,0,0), edge)
+            pg.draw.polygon(surf, self.colour, edge)
+
         for edge in edges:
-            
             for p1, p2 in zip(edge, edge[1:]):
-                pg.draw.line(surf, (0,0,0), p1, p2, width=2)
-            pg.draw.line(surf, (0,0,0), edge[0], edge[-1], width=2)
-
+                pg.draw.line(surf, (0,0,0), p1, p2, width=self.edge_width)
+            pg.draw.line(surf, (0,0,0), edge[0], edge[-1], width=self.edge_width)
 
 
 
