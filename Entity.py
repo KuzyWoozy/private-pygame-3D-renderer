@@ -5,17 +5,23 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 from Config import *
 
+# Convert to radians
+FOV_VERT *= np.pi/180
+FOV_HOR *= np.pi/180
+
+FOV_VERT_HALF = FOV_VERT/2
+FOV_HOR_HALF = FOV_HOR/2
 
 
 class Entity(ABC):
     def __init__(self, colour):
-        global FOV, SCREEN_SIZE
+        global FOV_HALF, SCREEN_SIZE
 
         self.dots = []
 
         self.colour = colour
         # Calculate the offset of the eye based on the desired vertical field of view
-        self.eyeOffset = (SCREEN_SIZE[1]/2)/(np.tan((np.pi/180) * (FOV/2)))
+        self.eyeOffset = (SCREEN_SIZE[0]/2)/(np.tan(FOV_HOR_HALF))
 
         
 
@@ -85,7 +91,18 @@ class Rectangle(Entity):
 
         dots = self._mergeDotVectors()
 
-        # tan and arctan cancel out
+        # Horrifc ik, but I cannot think of a better solution yet 
+        if (dots[:, 2] < 0).any():
+            return
+
+        if ((np.arctan(dots[:, 0]/dots[:, 2]) < -FOV_HOR_HALF).all() or (np.arctan(dots[:, 0]/dots[:, 2]) > FOV_HOR_HALF).all()):
+            return
+
+        if ((np.arctan(dots[:, 1]/dots[:, 2]) < -FOV_VERT_HALF).all() or (np.arctan(dots[:, 1]/dots[:, 2]) > FOV_VERT_HALF).all()):
+            return
+
+
+
         dots[:, 1] = self.eyeOffset * (dots[:, 1]/dots[:, 2])
         dots[:, 0] = self.eyeOffset * (dots[:, 0]/dots[:, 2])
 
@@ -93,8 +110,7 @@ class Rectangle(Entity):
         dots[:, 1] += SCREEN_SIZE[1]/2
         dots[:, 0] += SCREEN_SIZE[0]/2
         
-        # Get rid of z-axis as we have finished projecting points onto screen
-        dots = np.delete(dots, 2, -1)
+        dots = np.delete(dots, 2, axis=-1)
 
         edges = np.array([
                 [dots[0], dots[1], dots[2], dots[3]],
@@ -104,6 +120,7 @@ class Rectangle(Entity):
                 [dots[0], dots[3], dots[4], dots[7]],
                 [dots[1], dots[2], dots[5], dots[6]]
                 ])
+
 
         for edge in edges:
             pg.draw.polygon(surf, self.colour, edge)
