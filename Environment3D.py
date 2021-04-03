@@ -29,8 +29,8 @@ class Environment3D:
                 (pg.K_s, {"func": lambda : self.rotate(np.pi/180 * ROTATION_ANGLE,0, 0)}),
                 (pg.K_d, {"func": lambda : self.rotate(0, -np.pi/180 * ROTATION_ANGLE, 0)}),
                 (pg.K_a, {"func": lambda : self.rotate(0, np.pi/180 * ROTATION_ANGLE, 0)}),
-                (pg.K_q, {"func": lambda : self.move(0, 0, MOVEMENT_DISTANCE)}),
-                (pg.K_e, {"func": lambda : self.move(0, 0, -MOVEMENT_DISTANCE)}), 
+                (pg.K_q, {"func": lambda : self.move(0, 0, -MOVEMENT_DISTANCE)}),
+                (pg.K_e, {"func": lambda : self.move(0, 0, MOVEMENT_DISTANCE)}), 
                 (pg.K_z, {"func": lambda : self.rotate(0, 0, -np.pi/180 * ROTATION_ANGLE)}),
                 (pg.K_x, {"func": lambda : self.rotate(0, 0, np.pi/180 * ROTATION_ANGLE)}), 
                 ])
@@ -44,10 +44,10 @@ class Environment3D:
 
 
         self.entities = [
-                Rectangle((50,0,0), (100, 100, 100), (0,0,0)),
-                Rectangle((-50,0,0), (100, 100, 100), (0,0,0)),
-                Rectangle((0,50,0), (100, 100, 100), (0,0,0)),
-                Rectangle((0,-50,0), (100, 100, 100), (0,0,0)),
+                Rectangle((75,0,100), (50, 50, 50), (0,0,0)),
+                Rectangle((-75,0,100), (50, 50, 50), (0,0,0)),
+                Rectangle((0,75,100), (50, 50, 50), (0,0,0)),
+                Rectangle((0,-75,100), (50, 50, 50), (0,0,0)),
                 ]
 
 
