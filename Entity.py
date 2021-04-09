@@ -12,11 +12,19 @@ FOV_VERT_HALF = FOV_VERT/2
 FOV_HOR_HALF = FOV_HOR/2
 
 
+# WARNING: THIS CURRENT IMPLEMENTATION ASSUMES FOV of 90!!!!
+FOV_HOR_RIGHT_NORMAL = np.array([np.sin(-FOV_HOR_HALF), 0, np.cos(-FOV_HOR_HALF)])
+FOV_HOR_LEFT_NORMAL = np.array([np.sin(FOV_HOR_HALF), 0, np.cos(FOV_HOR_HALF)])
+FOV_VERT_UP_NORMAL = np.array([0, np.sin(-FOV_VERT_HALF), np.cos(-FOV_VERT_HALF)])
+FOV_VERT_DOWN_NORMAL = np.array([0, np.sin(FOV_VERT_HALF), np.cos(FOV_VERT_HALF)])
+XY_NORMAL = np.array([0, 0, 1])
+
+
 class Entity(ABC):
     def __init__(self, colour: Tuple[int, int, int]) -> None:
         global FOV_HALF, SCREEN_SIZE
 
-        self.dots: np.ndarray = np.empty(0)
+        self.dots: np.ndarray = None
 
         self.colour: Tuple[int, int, int] = colour
         # Calculate the offset of the eye based on the desired vertical field of view
@@ -26,6 +34,91 @@ class Entity(ABC):
     def move(self, x_dist: float, y_dist: float, z_dist: float) -> None:
         self.dots += np.array([x_dist, y_dist, z_dist])
     
+    @staticmethod
+    def cull(edges: np.ndarray) -> np.ndarray:
+        # Gets rid of insignificant edges 
+        edges = edges[np.logical_or(edges[:, 0, 2] > 0, edges[:, 1, 2] > 0)]
+
+        # XY plane
+        xy_mask_p = edges[:, 0, 2] < 0
+        if (edges[xy_mask_p].size > 0):
+            P = edges[xy_mask_p, 0]
+            Q = edges[xy_mask_p, 1]
+            PQ_diff = P-Q
+            edges[xy_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(XY_NORMAL)/PQ_diff.dot(XY_NORMAL), 0).transpose() + Q)
+            edges[xy_mask_p, 0, 2] = 0 
+ 
+        xy_mask_q = edges[:, 1, 2] < 0
+        if (edges[xy_mask_q].size > 0):
+            P = edges[xy_mask_q, 0]
+            Q = edges[xy_mask_q, 1]
+            PQ_diff = P-Q
+            edges[xy_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(XY_NORMAL)/PQ_diff.dot(XY_NORMAL), 0).transpose() + Q)
+            edges[xy_mask_q, 1, 2] = 0
+
+        # Right
+        right_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 0] >= 0)
+        if (edges[right_mask_p].size > 0):
+            P = edges[right_mask_p, 0]
+            Q = edges[right_mask_p, 1]
+            PQ_diff = P-Q
+            edges[right_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL), 0).transpose() + Q)
+
+        right_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 0] >= 0)
+        if (edges[right_mask_q].size > 0):
+            P = edges[right_mask_q, 0]
+            Q = edges[right_mask_q, 1]
+            PQ_diff = P-Q
+            edges[right_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL), 0).transpose() + Q)
+
+        # Left
+        left_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 0] < 0)
+        if (edges[left_mask_p].size > 0):
+            P = edges[left_mask_p, 0]
+            Q = edges[left_mask_p, 1]
+            PQ_diff = P-Q
+            edges[left_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_LEFT_NORMAL)/PQ_diff.dot(FOV_HOR_LEFT_NORMAL), 0).transpose() + Q)
+
+        left_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 0] < 0)
+        if (edges[left_mask_q].size > 0):
+            P = edges[left_mask_q, 0]
+            Q = edges[left_mask_q, 1]
+            PQ_diff = P-Q
+            edges[left_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_LEFT_NORMAL)/PQ_diff.dot(FOV_HOR_LEFT_NORMAL), 0).transpose() + Q)
+
+        # Up
+        up_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 1] >= 0)
+        if (edges[up_mask_p].size > 0):
+            P = edges[up_mask_p, 0]
+            Q = edges[up_mask_p, 1]
+            PQ_diff = P-Q
+            edges[up_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_UP_NORMAL)/PQ_diff.dot(FOV_VERT_UP_NORMAL), 0).transpose() + Q)
+
+
+        up_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 1] >= 0)
+        if (edges[up_mask_q].size > 0):
+            P = edges[up_mask_q, 0]
+            Q = edges[up_mask_q, 1]
+            PQ_diff = P-Q
+            edges[up_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_UP_NORMAL)/PQ_diff.dot(FOV_VERT_UP_NORMAL), 0).transpose() + Q)
+
+        # Down
+        down_mask_p: np.ndarray =  np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 1] < 0)
+        if (edges[down_mask_p].size > 0):
+            P = edges[down_mask_p, 0]
+            Q = edges[down_mask_p, 1]
+            PQ_diff = P-Q
+            edges[down_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_DOWN_NORMAL)/PQ_diff.dot(FOV_VERT_DOWN_NORMAL), 0).transpose() + Q)
+
+        down_mask_q: np.ndarray =  np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 1] < 0)
+        if (edges[down_mask_q].size > 0):
+            P = edges[down_mask_q, 0]
+            Q = edges[down_mask_q, 1]
+            PQ_diff = P-Q
+            edges[down_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_DOWN_NORMAL)/PQ_diff.dot(FOV_VERT_DOWN_NORMAL), 0).transpose() + Q)
+
+        return edges
+
     @abstractmethod
     def rotate(self, x_rot: float, y_rot: float, z_rot: float) -> None:
         pass
@@ -85,36 +178,54 @@ class Rectangle(Entity):
 
         dots: np.ndarray = self.dots.copy()
 
-        # Horrifc ik, but I cannot think of a better solution yet 
-        if (dots[:, 2] < 0).any():
+        # Stop trying to draw it if it cannot be rendered
+        if ((dots[:, 2] < 0).all()):
             return
+    
+        edges: np.ndarray = np.array([
+                [dots[0], dots[1]],
+                [dots[1], dots[2]],
+                [dots[2], dots[3]],
+                [dots[3], dots[0]],
+                [dots[0], dots[4]],
+                [dots[1], dots[5]],
+                [dots[2], dots[6]],
+                [dots[3], dots[7]],
+                [dots[4], dots[5]],
+                [dots[5], dots[6]],
+                [dots[6], dots[7]],
+                [dots[7], dots[4]],
+                ])
 
 
-        dots[:, 1] = self.eyeOffset * (dots[:, 1]/dots[:, 2])
-        dots[:, 0] = self.eyeOffset * (dots[:, 0]/dots[:, 2])
+        edges = Rectangle.cull(edges)
+
+        edges[:, :, 1] = self.eyeOffset * (edges[:, :, 1]/edges[:, :, 2])
+        edges[:, :, 0] = self.eyeOffset * (edges[:, :, 0]/edges[:, :, 2])
 
         # Shift origin to pygame position
-        dots[:, 1] += SCREEN_SIZE[1]/2
-        dots[:, 0] += SCREEN_SIZE[0]/2
+        edges[:, :, 1] += SCREEN_SIZE[1]/2
+        edges[:, :, 0] += SCREEN_SIZE[0]/2
         
-        dots = np.delete(dots, 2, axis=-1)
+        edges = np.delete(edges, 2, axis=-1)
 
-        edges: np.ndarray = np.array([
-                [dots[0], dots[1], dots[2], dots[3]],
-                [dots[4], dots[5], dots[6], dots[7]],
-                [dots[0], dots[4], dots[5], dots[1]],
+        """
+        planes: np.ndarray = np.array([
+                [edges[0, 0], edges[1, 0], edges[5, 0], edges[4, 0]],
+                [edges[1, 0], edges[2, 0], edges[6, 0], edges[5, 0]],
+                [],
                 [dots[1], dots[5], dots[6], dots[2]],
                 [dots[2], dots[6], dots[7], dots[3]],
                 [dots[3], dots[7], dots[4], dots[0]],
                 ])
 
-        for edge in edges:
-            pg.draw.polygon(surf, self.colour, edge)
+        for plane in planes:
+            pg.draw.polygon(surf, self.colour, plane)
+        """
 
         for edge in edges:
-            for p1, p2 in zip(edge, edge[1:]):
+            for (p1, p2) in edges:
                 pg.draw.line(surf, (0,0,0), p1, p2, width=self.edge_width)
-            pg.draw.line(surf, (0,0,0), edge[0], edge[-1], width=self.edge_width)
 
 
         
