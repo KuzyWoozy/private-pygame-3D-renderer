@@ -1,23 +1,42 @@
 import pygame as pg
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Tuple, List
+from typing import Tuple, List, Callable
 from Config import *
 
 # Convert to radians
 FOV_VERT *= np.pi/180
 FOV_HOR *= np.pi/180
 
-FOV_VERT_HALF = FOV_VERT/2
-FOV_HOR_HALF = FOV_HOR/2
+FOV_VERT_HALF: float = FOV_VERT/2
+FOV_HOR_HALF: float = FOV_HOR/2
 
+# Debug settings
+CULL_OFFSET = 100
 
 # WARNING: THIS CURRENT IMPLEMENTATION ASSUMES FOV of 90!!!!
-FOV_HOR_RIGHT_NORMAL = np.array([np.sin(-FOV_HOR_HALF), 0, np.cos(-FOV_HOR_HALF)])
-FOV_HOR_LEFT_NORMAL = np.array([np.sin(FOV_HOR_HALF), 0, np.cos(FOV_HOR_HALF)])
-FOV_VERT_UP_NORMAL = np.array([0, np.sin(-FOV_VERT_HALF), np.cos(-FOV_VERT_HALF)])
-FOV_VERT_DOWN_NORMAL = np.array([0, np.sin(FOV_VERT_HALF), np.cos(FOV_VERT_HALF)])
-XY_NORMAL = np.array([0, 0, 1])
+HYPERPLANES: np.ndarray = np.array([
+                    [0, 0, 1],
+                    [np.sin(-FOV_HOR_HALF), 0, np.cos(-FOV_HOR_HALF)],
+                    [0, np.sin(FOV_VERT_HALF), np.cos(FOV_VERT_HALF)],
+                    [np.sin(FOV_HOR_HALF), 0, np.cos(FOV_HOR_HALF)],
+                    [0, np.sin(-FOV_VERT_HALF), np.cos(-FOV_VERT_HALF)]
+                ])
+
+# Pairs of lambdas to handle p and q being outta place
+SIDE_FUNCS = [
+    [lambda x: x[:, 0, 2] < CULL_OFFSET,
+     lambda x: x[:, 1, 2] < CULL_OFFSET],
+    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 0] >= 0), 
+     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 0] >= 0)],
+    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 1] < 0),
+     lambda x:  np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 1] < 0)],
+    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 0] < 0), 
+     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 0] < 0)],
+     [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 1] >= 0),
+     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 1] >= 0)]
+    ]
+
 
 
 class Entity(ABC):
@@ -36,95 +55,49 @@ class Entity(ABC):
     
     @staticmethod
     def cull(planes: List[np.ndarray]) -> List[np.ndarray]:
+        global SIDE_FUNCS, HYPERPLANES, CULL_OFFSET
         # Gets rid of insignificant edges 
         
         culled_planes = []
         for edges in planes:
-            
-            edges = edges[np.logical_or(edges[:, 0, 2] > 0, edges[:, 1, 2] > 0)]
-            # XY plane
-            xy_mask_p = edges[:, 0, 2] < 0
-            if (edges[xy_mask_p].size > 0):
-                P = edges[xy_mask_p, 0]
-                Q = edges[xy_mask_p, 1]
-                PQ_diff = P-Q
-                edges[xy_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(XY_NORMAL)/PQ_diff.dot(XY_NORMAL), 0).transpose() + Q)
-                edges[xy_mask_p, 0, 2] = 0 
+            edges = edges[np.logical_or(edges[:, 0, 2] > CULL_OFFSET, edges[:, 1, 2] > CULL_OFFSET)]
+            for side_funcs, hyperplane in zip(SIDE_FUNCS, HYPERPLANES):
+                for index, side_func in enumerate(side_funcs):
+                
+                    mask: np.ndarray = side_func(edges)
+                    if (edges[mask].size > 0):
+                        P = edges[mask, 0]
+                        Q = edges[mask, 1]
+                        PQ_diff = P-Q
+                        edges[mask, index] = (PQ_diff * np.expand_dims((np.array([0, 0, CULL_OFFSET])-Q).dot(hyperplane)/PQ_diff.dot(hyperplane), 0).transpose() + Q)
  
-            xy_mask_q = edges[:, 1, 2] < 0
-            if (edges[xy_mask_q].size > 0):
-                P = edges[xy_mask_q, 0]
-                Q = edges[xy_mask_q, 1]
-                PQ_diff = P-Q
-                edges[xy_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(XY_NORMAL)/PQ_diff.dot(XY_NORMAL), 0).transpose() + Q)
-                edges[xy_mask_q, 1, 2] = 0
-
-            # Right
-            right_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 0] >= 0)
-            if (edges[right_mask_p].size > 0):
-                P = edges[right_mask_p, 0]
-                Q = edges[right_mask_p, 1]
-                PQ_diff = P-Q
-                edges[right_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL), 0).transpose() + Q)
-
-            right_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 0] >= 0)
-            if (edges[right_mask_q].size > 0):
-                P = edges[right_mask_q, 0]
-                Q = edges[right_mask_q, 1]
-                PQ_diff = P-Q
-                edges[right_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL), 0).transpose() + Q)
-
-            # Left
-            left_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 0] < 0)
-            if (edges[left_mask_p].size > 0):
-                P = edges[left_mask_p, 0]
-                Q = edges[left_mask_p, 1]
-                PQ_diff = P-Q
-                edges[left_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_LEFT_NORMAL)/PQ_diff.dot(FOV_HOR_LEFT_NORMAL), 0).transpose() + Q)
-
-            left_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 0] < 0)
-            if (edges[left_mask_q].size > 0):
-                P = edges[left_mask_q, 0]
-                Q = edges[left_mask_q, 1]
-                PQ_diff = P-Q
-                edges[left_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_HOR_LEFT_NORMAL)/PQ_diff.dot(FOV_HOR_LEFT_NORMAL), 0).transpose() + Q)
-
-            # Up
-            up_mask_p: np.ndarray = np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 1] >= 0)
-            if (edges[up_mask_p].size > 0):
-                P = edges[up_mask_p, 0]
-                Q = edges[up_mask_p, 1]
-                PQ_diff = P-Q
-                edges[up_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_UP_NORMAL)/PQ_diff.dot(FOV_VERT_UP_NORMAL), 0).transpose() + Q)
-
-
-            up_mask_q: np.ndarray = np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 1] >= 0)
-            if (edges[up_mask_q].size > 0):
-                P = edges[up_mask_q, 0]
-                Q = edges[up_mask_q, 1]
-                PQ_diff = P-Q
-                edges[up_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_UP_NORMAL)/PQ_diff.dot(FOV_VERT_UP_NORMAL), 0).transpose() + Q)
-
-            # Down
-            down_mask_p: np.ndarray =  np.logical_and(edges[:, 0, 2] == 0, edges[:, 0, 1] < 0)
-            if (edges[down_mask_p].size > 0):
-                P = edges[down_mask_p, 0]
-                Q = edges[down_mask_p, 1]
-                PQ_diff = P-Q
-                edges[down_mask_p, 0] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_DOWN_NORMAL)/PQ_diff.dot(FOV_VERT_DOWN_NORMAL), 0).transpose() + Q)
-
-            down_mask_q: np.ndarray =  np.logical_and(edges[:, 1, 2] == 0, edges[:, 1, 1] < 0)
-            if (edges[down_mask_q].size > 0):
-                P = edges[down_mask_q, 0]
-                Q = edges[down_mask_q, 1]
-                PQ_diff = P-Q
-                edges[down_mask_q, 1] = (PQ_diff * np.expand_dims(-Q.dot(FOV_VERT_DOWN_NORMAL)/PQ_diff.dot(FOV_VERT_DOWN_NORMAL), 0).transpose() + Q)
-
             if edges.shape[0] > 0:
                 culled_planes.append(edges)
 
         return culled_planes
 
+            
+        """
+            # Right
+            right_mask_p: np.ndarray = 
+            if (edges[right_mask_p].size > 0):
+                P = edges[right_mask_p, 0]
+                Q = edges[right_mask_p, 1]
+                PQ_diff = P-Q
+                t = (np.array([0, 0, CULL_OFFSET])-Q).dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL)
+               
+                # inverses right_mask_p
+                inv_mask = (right_mask_p == False)
+                right_mask_p[right_mask_p==True] = np.logical_and(right_mask_p[right_mask_p==True], np.absolute(t) <= 1)
+                edges = edges[np.logical_or(inv_mask, right_mask_p)]
+                right_mask_p = right_mask_p[np.logical_or(inv_mask, right_mask_p)]
+
+                t = np.expand_dims(t[np.absolute(t) <= 1], 0).transpose()
+                
+                edges[right_mask_p, 0] = (PQ_diff * t + Q)
+        """
+    
+            
     @abstractmethod
     def rotate(self, x_rot: float, y_rot: float, z_rot: float) -> None:
         pass
@@ -207,14 +180,14 @@ class Rectangle(Entity):
             # Shift origin to pygame position
             plane[:, :, 1] += SCREEN_SIZE[1]/2
             plane[:, :, 0] += SCREEN_SIZE[0]/2
-        
             new_planes.append(np.delete(plane, 2, axis=-1))
         planes = new_planes
-       
-        for plane in planes:
-            pg.draw.polygon(surf, self.colour, np.concatenate(plane))
-       
-
+        
+        
+        #for plane in planes:
+        #    pg.draw.polygon(surf, self.colour, np.concatenate(plane))
+        
+        
         for plane in planes:
             for (p1, p2) in plane:
                 pg.draw.line(surf, (0,0,0), p1, p2, width=self.edge_width)
