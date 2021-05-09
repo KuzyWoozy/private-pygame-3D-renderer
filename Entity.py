@@ -12,31 +12,45 @@ FOV_VERT_HALF: float = FOV_VERT/2
 FOV_HOR_HALF: float = FOV_HOR/2
 
 # Debug settings
-CULL_OFFSET = 100
+CULL_OFFSET: float = 0
 
-# WARNING: THIS CURRENT IMPLEMENTATION ASSUMES FOV of 90!!!!
+
+border_ang: float = 20
+border_rad: float = border_ang * (np.pi/180)
+
 HYPERPLANES: np.ndarray = np.array([
                     [0, 0, 1],
-                    [np.sin(-FOV_HOR_HALF), 0, np.cos(-FOV_HOR_HALF)],
-                    [0, np.sin(FOV_VERT_HALF), np.cos(FOV_VERT_HALF)],
-                    [np.sin(FOV_HOR_HALF), 0, np.cos(FOV_HOR_HALF)],
-                    [0, np.sin(-FOV_VERT_HALF), np.cos(-FOV_VERT_HALF)]
+                    [np.sin(-border_rad), 0, np.cos(-border_rad)],
+                    [0, np.sin(border_rad), np.cos(border_rad)],
+                    [np.sin(border_rad), 0, np.cos(border_rad)],
+                    [0, np.sin(-border_rad), np.cos(-border_rad)]
                 ])
 
 # Pairs of lambdas to handle p and q being outta place
-SIDE_FUNCS = [
+HYPERPLANE_FUNCS = [
     [lambda x: x[:, 0, 2] < CULL_OFFSET,
      lambda x: x[:, 1, 2] < CULL_OFFSET],
-    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 0] >= 0), 
-     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 0] >= 0)],
-    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 1] < 0),
-     lambda x:  np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 1] < 0)],
-    [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 0] < 0), 
-     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 0] < 0)],
-     [lambda x: np.logical_and(np.around(x[:, 0, 2]) == CULL_OFFSET, x[:, 0, 1] >= 0),
-     lambda x: np.logical_and(np.around(x[:, 1, 2]) == CULL_OFFSET, x[:, 1, 1] >= 0)]
+    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 0] >= 0),
+     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 0] >= 0)],
+    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 1] < 0),
+     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 1] < 0)],
+    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 0] < 0), 
+     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 0] < 0)],
+    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 1] >= 0),
+     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 1] >= 0)]
     ]
 
+
+ANGLE_FUNCS = [
+        [lambda x: np.arctan(x[:, 0, 0]/x[:, 0, 2]) > ((90-border_ang) * np.pi/180),
+         lambda x: np.arctan(x[:, 1, 0]/x[:, 1, 2]) > ((90-border_ang) * np.pi/180)],
+        [lambda x: np.arctan(x[:, 0, 1]/x[:, 0, 2]) < ((-90+border_ang) * np.pi/180),
+         lambda x: np.arctan(x[:, 1, 1]/x[:, 1, 2]) < ((-90+border_ang) * np.pi/180)],
+        [lambda x: np.arctan(x[:, 0, 0]/x[:, 0, 2]) < ((-90+border_ang) * np.pi/180),
+         lambda x: np.arctan(x[:, 1, 0]/x[:, 1, 2]) < ((-90+border_ang) * np.pi/180)],
+        [lambda x: np.arctan(x[:, 0, 1]/x[:, 0, 2]) > ((90-border_ang) * np.pi/180),
+         lambda x: np.arctan(x[:, 1, 1]/x[:, 1, 2]) > ((90-border_ang) * np.pi/180)]
+     ]
 
 
 class Entity(ABC):
@@ -55,49 +69,42 @@ class Entity(ABC):
     
     @staticmethod
     def cull(planes: List[np.ndarray]) -> List[np.ndarray]:
-        global SIDE_FUNCS, HYPERPLANES, CULL_OFFSET
-        # Gets rid of insignificant edges 
+        global HYPERPLANE_FUNCS, ANGLE_FUNCS, HYPERPLANES, CULL_OFFSET
         
+
+        def planeIntersect(edges: np.ndarray, mask_funcs: Callable[np.ndarray, np.ndarray], hyperplane: np.ndarray) -> None:
+            for index, mask_func in enumerate(mask_funcs):
+                mask: np.ndarray = mask_func(edges)
+                if (edges[mask].size > 0):
+                    P = edges[mask, 0]
+                    Q = edges[mask, 1]
+                    PQ_diff = P-Q
+                    
+                    denominator = PQ_diff.dot(hyperplane)
+                    t = np.empty(PQ_diff.shape[0])
+                    t[denominator == 0] = 0
+                    t[denominator != 0] = np.array(([0, 0, CULL_OFFSET]-Q[denominator!=0]).dot(hyperplane)/denominator[denominator!=0])
+                    edges[mask, index] = ((PQ_diff * np.expand_dims(t, 0).transpose()) + Q)
+            
+
+        # Gets rid of insignificant edges 
         culled_planes = []
         for edges in planes:
             edges = edges[np.logical_or(edges[:, 0, 2] > CULL_OFFSET, edges[:, 1, 2] > CULL_OFFSET)]
-            for side_funcs, hyperplane in zip(SIDE_FUNCS, HYPERPLANES):
-                for index, side_func in enumerate(side_funcs):
-                
-                    mask: np.ndarray = side_func(edges)
-                    if (edges[mask].size > 0):
-                        P = edges[mask, 0]
-                        Q = edges[mask, 1]
-                        PQ_diff = P-Q
-                        edges[mask, index] = (PQ_diff * np.expand_dims((np.array([0, 0, CULL_OFFSET])-Q).dot(hyperplane)/PQ_diff.dot(hyperplane), 0).transpose() + Q)
- 
+          
+            for hyperplane_func, hyperplane in zip(HYPERPLANE_FUNCS, HYPERPLANES):
+                planeIntersect(edges, hyperplane_func, hyperplane)
+            
+            for angle_func, hyperplane in zip(ANGLE_FUNCS, HYPERPLANES[1:]):
+                planeIntersect(edges, angle_func, hyperplane)
+
+
             if edges.shape[0] > 0:
                 culled_planes.append(edges)
 
         return culled_planes
 
-            
-        """
-            # Right
-            right_mask_p: np.ndarray = 
-            if (edges[right_mask_p].size > 0):
-                P = edges[right_mask_p, 0]
-                Q = edges[right_mask_p, 1]
-                PQ_diff = P-Q
-                t = (np.array([0, 0, CULL_OFFSET])-Q).dot(FOV_HOR_RIGHT_NORMAL)/PQ_diff.dot(FOV_HOR_RIGHT_NORMAL)
-               
-                # inverses right_mask_p
-                inv_mask = (right_mask_p == False)
-                right_mask_p[right_mask_p==True] = np.logical_and(right_mask_p[right_mask_p==True], np.absolute(t) <= 1)
-                edges = edges[np.logical_or(inv_mask, right_mask_p)]
-                right_mask_p = right_mask_p[np.logical_or(inv_mask, right_mask_p)]
-
-                t = np.expand_dims(t[np.absolute(t) <= 1], 0).transpose()
-                
-                edges[right_mask_p, 0] = (PQ_diff * t + Q)
-        """
-    
-            
+                         
     @abstractmethod
     def rotate(self, x_rot: float, y_rot: float, z_rot: float) -> None:
         pass
@@ -156,7 +163,7 @@ class Rectangle(Entity):
         global SCREEN_SIZE
 
         dots: np.ndarray = self.dots.copy()
-
+        print(dots)
         # Stop trying to draw it if it cannot be rendered
         if ((dots[:, 2] < 0).all()):
             return
@@ -166,10 +173,10 @@ class Rectangle(Entity):
                                     np.array([[dots[1], dots[2]], [dots[2], dots[6]], [dots[6], dots[5]], [dots[5], dots[1]]]),
                                     np.array([[dots[2], dots[3]], [dots[3], dots[7]], [dots[7], dots[6]], [dots[6], dots[2]]]),
                                     np.array([[dots[3], dots[7]], [dots[7], dots[4]], [dots[4], dots[0]], [dots[0], dots[3]]]),
+                                    np.array([[dots[7], dots[4]], [dots[0], dots[3]]]),
                                     np.array([[dots[0], dots[1]], [dots[1], dots[2]], [dots[2], dots[3]], [dots[3], dots[0]]]),
                                     np.array([[dots[4], dots[5]], [dots[5], dots[6]], [dots[6], dots[7]], [dots[7], dots[4]]])
                                    ]
-
         planes = Rectangle.cull(planes)
 
         new_planes = []
@@ -182,15 +189,15 @@ class Rectangle(Entity):
             plane[:, :, 0] += SCREEN_SIZE[0]/2
             new_planes.append(np.delete(plane, 2, axis=-1))
         planes = new_planes
-        
-        
-        #for plane in planes:
-        #    pg.draw.polygon(surf, self.colour, np.concatenate(plane))
+       
+         
+        for plane in planes:
+            if plane.shape[0] >= 2:
+                pg.draw.polygon(surf, self.colour, np.concatenate(plane))
         
         
         for plane in planes:
             for (p1, p2) in plane:
                 pg.draw.line(surf, (0,0,0), p1, p2, width=self.edge_width)
-
 
         
