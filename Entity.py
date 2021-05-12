@@ -11,46 +11,10 @@ FOV_HOR *= np.pi/180
 FOV_VERT_HALF: float = FOV_VERT/2
 FOV_HOR_HALF: float = FOV_HOR/2
 
-# Debug settings
+# For debugging purposes
 CULL_OFFSET: float = 0
 
-
-border_ang: float = 20
-border_rad: float = border_ang * (np.pi/180)
-
-HYPERPLANES: np.ndarray = np.array([
-                    [0, 0, 1],
-                    [np.sin(-border_rad), 0, np.cos(-border_rad)],
-                    [0, np.sin(border_rad), np.cos(border_rad)],
-                    [np.sin(border_rad), 0, np.cos(border_rad)],
-                    [0, np.sin(-border_rad), np.cos(-border_rad)]
-                ])
-
-# Pairs of lambdas to handle p and q being outta place
-HYPERPLANE_FUNCS = [
-    [lambda x: x[:, 0, 2] < CULL_OFFSET,
-     lambda x: x[:, 1, 2] < CULL_OFFSET],
-    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 0] >= 0),
-     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 0] >= 0)],
-    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 1] < 0),
-     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 1] < 0)],
-    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 0] < 0), 
-     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 0] < 0)],
-    [lambda x: np.logical_and(np.floor(x[:, 0, 2]) <= CULL_OFFSET, x[:, 0, 1] >= 0),
-     lambda x: np.logical_and(np.floor(x[:, 1, 2]) <= CULL_OFFSET, x[:, 1, 1] >= 0)]
-    ]
-
-
-ANGLE_FUNCS = [
-        [lambda x: np.arctan(x[:, 0, 0]/x[:, 0, 2]) > ((90-border_ang) * np.pi/180),
-         lambda x: np.arctan(x[:, 1, 0]/x[:, 1, 2]) > ((90-border_ang) * np.pi/180)],
-        [lambda x: np.arctan(x[:, 0, 1]/x[:, 0, 2]) < ((-90+border_ang) * np.pi/180),
-         lambda x: np.arctan(x[:, 1, 1]/x[:, 1, 2]) < ((-90+border_ang) * np.pi/180)],
-        [lambda x: np.arctan(x[:, 0, 0]/x[:, 0, 2]) < ((-90+border_ang) * np.pi/180),
-         lambda x: np.arctan(x[:, 1, 0]/x[:, 1, 2]) < ((-90+border_ang) * np.pi/180)],
-        [lambda x: np.arctan(x[:, 0, 1]/x[:, 0, 2]) > ((90-border_ang) * np.pi/180),
-         lambda x: np.arctan(x[:, 1, 1]/x[:, 1, 2]) > ((90-border_ang) * np.pi/180)]
-     ]
+BORDER: int = 45
 
 
 class Entity(ABC):
@@ -69,11 +33,11 @@ class Entity(ABC):
     
     @staticmethod
     def cull(planes: List[np.ndarray]) -> List[np.ndarray]:
-        global HYPERPLANE_FUNCS, ANGLE_FUNCS, HYPERPLANES, CULL_OFFSET
+        global CULL_OFFSET, BORDER
         
 
-        def planeIntersect(edges: np.ndarray, mask_funcs: Callable[np.ndarray, np.ndarray], hyperplane: np.ndarray) -> None:
-            for index, mask_func in enumerate(mask_funcs):
+        def planeIntersect(edges: np.ndarray, mask_funcs: List[Callable[[np.ndarray], np.ndarray]], hyperplane: np.ndarray) -> None:
+            for point, mask_func in enumerate(mask_funcs):
                 mask: np.ndarray = mask_func(edges)
                 if (edges[mask].size > 0):
                     P = edges[mask, 0]
@@ -82,26 +46,44 @@ class Entity(ABC):
                     
                     denominator = PQ_diff.dot(hyperplane)
                     t = np.empty(PQ_diff.shape[0])
-                    t[denominator == 0] = 0
-                    t[denominator != 0] = np.array(([0, 0, CULL_OFFSET]-Q[denominator!=0]).dot(hyperplane)/denominator[denominator!=0])
-                    edges[mask, index] = ((PQ_diff * np.expand_dims(t, 0).transpose()) + Q)
-            
+                    t[np.abs(denominator) < 1e-2] = 1
+                    t[np.abs(denominator) >= 1e-2] = np.array(([0, 0, CULL_OFFSET]-Q[np.abs(denominator) >= 1e-2]).dot(hyperplane)/denominator[np.abs(denominator) >= 1e-2])
+                    edges[mask, point] = ((PQ_diff * np.expand_dims(t, 0).transpose()) + Q)
 
         # Gets rid of insignificant edges 
         culled_planes = []
         for edges in planes:
             edges = edges[np.logical_or(edges[:, 0, 2] > CULL_OFFSET, edges[:, 1, 2] > CULL_OFFSET)]
-          
-            for hyperplane_func, hyperplane in zip(HYPERPLANE_FUNCS, HYPERPLANES):
-                planeIntersect(edges, hyperplane_func, hyperplane)
+            if edges.size == 0:
+                continue
+
+            # z plane
+            planeIntersect(edges, [lambda x: x[:, 0, 2] < CULL_OFFSET,
+         lambda x: x[:, 1, 2] < CULL_OFFSET], np.array([0, 0, 1]))
             
-            for angle_func, hyperplane in zip(ANGLE_FUNCS, HYPERPLANES[1:]):
-                planeIntersect(edges, angle_func, hyperplane)
+            # zero divide value guard
+            edges[edges[:, :, 2] < 1e-2, 2] = 1e-2
 
+                        
+            # borders
+            # right
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) < (90-BORDER) * (np.pi/180), np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) < (90-BORDER)*(np.pi/180))]
+            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) > (90-BORDER) *(np.pi/180), lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) > (90-BORDER)*(np.pi/180)], np.array([np.sin(-BORDER * (np.pi/180)), 0, np.cos(-BORDER * (np.pi/180))]))
+            # left
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) > (BORDER-90) * (np.pi/180), np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) > (BORDER-90) * (np.pi/180))]
+            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) < (BORDER-90) * (np.pi/180), lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) < (BORDER-90) * (np.pi/180)], np.array([np.sin(BORDER * (np.pi/180)), 0, np.cos(BORDER * (np.pi/180))]))
+            # up
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) > (BORDER-90) * (np.pi/180), np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) > (BORDER-90) * (np.pi/180))]
+            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) < (BORDER-90) * (np.pi/180), lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) < (BORDER-90) * (np.pi/180)], np.array([0, np.sin(BORDER * (np.pi/180)), np.cos(BORDER * (np.pi/180))]))
+            # down
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) < (90-BORDER) *(np.pi/180), np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) < (90-BORDER)*(np.pi/180))]
+            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) > (90-BORDER) *(np.pi/180), lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) > (90-BORDER)*(np.pi/180)], np.array([0, np.sin(-BORDER * (np.pi/180)), np.cos(-BORDER * (np.pi/180))]))
+           
+            print((np.arctan(edges[:, :, 0]/edges[:, :, 2]) * 180/np.pi), edges[:, :, 2])
 
-            if edges.shape[0] > 0:
+            if edges.size > 1:
                 culled_planes.append(edges)
-
+            
         return culled_planes
 
                          
@@ -161,43 +143,49 @@ class Rectangle(Entity):
 
     def blit(self, surf: pg.surface.Surface) -> None:
         global SCREEN_SIZE
-
+        
         dots: np.ndarray = self.dots.copy()
-        print(dots)
         # Stop trying to draw it if it cannot be rendered
         if ((dots[:, 2] < 0).all()):
             return
+
+        # Culling
+        dots[dots[:, 2] < 1e-2, 2] = 1e-2
+        if not np.logical_and((np.abs(np.arctan(dots[:, 0] / dots[:, 2]) < FOV_HOR_HALF).any()), (np.abs(np.arctan(dots[:, 1] / dots[:, 2])) < FOV_VERT_HALF).any()):
+            return
+
     
         planes: List[np.ndarray] = [
                                     np.array([[dots[0], dots[1]], [dots[1], dots[5]], [dots[5], dots[4]], [dots[4], dots[0]]]),
-                                    np.array([[dots[1], dots[2]], [dots[2], dots[6]], [dots[6], dots[5]], [dots[5], dots[1]]]),
-                                    np.array([[dots[2], dots[3]], [dots[3], dots[7]], [dots[7], dots[6]], [dots[6], dots[2]]]),
-                                    np.array([[dots[3], dots[7]], [dots[7], dots[4]], [dots[4], dots[0]], [dots[0], dots[3]]]),
-                                    np.array([[dots[7], dots[4]], [dots[0], dots[3]]]),
-                                    np.array([[dots[0], dots[1]], [dots[1], dots[2]], [dots[2], dots[3]], [dots[3], dots[0]]]),
-                                    np.array([[dots[4], dots[5]], [dots[5], dots[6]], [dots[6], dots[7]], [dots[7], dots[4]]])
+
+                                    #np.array([[dots[1], dots[2]], [dots[2], dots[6]], [dots[6], dots[5]], [dots[5], dots[1]]]),
+                                    #np.array([[dots[2], dots[3]], [dots[3], dots[7]], [dots[7], dots[6]], [dots[6], dots[2]]]),
+                                    #np.array([[dots[3], dots[7]], [dots[7], dots[4]], [dots[4], dots[0]], [dots[0], dots[3]]]),
+                                    #np.array([[dots[0], dots[1]], [dots[1], dots[2]], [dots[2], dots[3]], [dots[3], dots[0]]]),
+                                    #np.array([[dots[4], dots[5]], [dots[5], dots[6]], [dots[6], dots[7]], [dots[7], dots[4]]])
                                    ]
+
         planes = Rectangle.cull(planes)
 
         new_planes = []
         for plane in planes:
+            plane[plane[:, :, 2] < 1e-2, 2] = 1e-2
             plane[:, :, 1] = self.eyeOffset * (plane[:, :, 1]/plane[:, :, 2])
             plane[:, :, 0] = self.eyeOffset * (plane[:, :, 0]/plane[:, :, 2])
 
             # Shift origin to pygame position
             plane[:, :, 1] += SCREEN_SIZE[1]/2
             plane[:, :, 0] += SCREEN_SIZE[0]/2
+            
             new_planes.append(np.delete(plane, 2, axis=-1))
         planes = new_planes
-       
          
         for plane in planes:
             if plane.shape[0] >= 2:
                 pg.draw.polygon(surf, self.colour, np.concatenate(plane))
         
-        
         for plane in planes:
             for (p1, p2) in plane:
                 pg.draw.line(surf, (0,0,0), p1, p2, width=self.edge_width)
-
+        
         
