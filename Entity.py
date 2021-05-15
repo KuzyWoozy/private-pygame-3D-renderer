@@ -14,7 +14,6 @@ FOV_HOR_HALF: float = FOV_HOR/2
 # For debugging purposes
 CULL_OFFSET: float = 0
 
-BORDER: int = 45
 
 
 class Entity(ABC):
@@ -33,10 +32,11 @@ class Entity(ABC):
     
     @staticmethod
     def cull(planes: List[np.ndarray]) -> List[np.ndarray]:
-        global CULL_OFFSET, BORDER
+        global CULL_OFFSET
         
 
         def planeIntersect(edges: np.ndarray, mask_funcs: List[Callable[[np.ndarray], np.ndarray]], hyperplane: np.ndarray) -> None:
+            closing_edge = [[], []]
             for point, mask_func in enumerate(mask_funcs):
                 mask: np.ndarray = mask_func(edges)
                 if (edges[mask].size > 0):
@@ -48,7 +48,11 @@ class Entity(ABC):
                     t = np.empty(PQ_diff.shape[0])
                     t[np.abs(denominator) < 1e-2] = 1
                     t[np.abs(denominator) >= 1e-2] = np.array(([0, 0, CULL_OFFSET]-Q[np.abs(denominator) >= 1e-2]).dot(hyperplane)/denominator[np.abs(denominator) >= 1e-2])
-                    edges[mask, point] = ((PQ_diff * np.expand_dims(t, 0).transpose()) + Q)
+                    projected_points = ((PQ_diff * np.expand_dims(t, 0).transpose()) + Q)
+                    edges[mask, point] = projected_points
+                    
+
+            return np.append(edges, np.array([closing_edge]), axis=0)
 
         # Gets rid of insignificant edges 
         culled_planes = []
@@ -67,20 +71,18 @@ class Entity(ABC):
                         
             # borders
             # right
-            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) < (90-BORDER) * (np.pi/180), np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) < (90-BORDER)*(np.pi/180))]
-            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) > (90-BORDER) *(np.pi/180), lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) > (90-BORDER)*(np.pi/180)], np.array([np.sin(-BORDER * (np.pi/180)), 0, np.cos(-BORDER * (np.pi/180))]))
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) <= FOV_HOR_HALF, np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) <= FOV_HOR_HALF)]
+            edges = planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) > FOV_HOR_HALF, lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) > FOV_HOR_HALF], np.array([np.sin(FOV_HOR_HALF-np.pi/2), 0, np.cos(FOV_HOR_HALF-np.pi/2)]))
             # left
-            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) > (BORDER-90) * (np.pi/180), np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) > (BORDER-90) * (np.pi/180))]
-            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) < (BORDER-90) * (np.pi/180), lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) < (BORDER-90) * (np.pi/180)], np.array([np.sin(BORDER * (np.pi/180)), 0, np.cos(BORDER * (np.pi/180))]))
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 0] / edges[:, 0, 2]) >= -FOV_HOR_HALF, np.arctan(edges[:, 1, 0] / edges[:, 1, 2]) >= -FOV_HOR_HALF)]
+            edges = planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 0] / x[:, 0, 2]) < -FOV_HOR_HALF, lambda x: np.arctan(x[:, 1, 0] / x[:, 1, 2]) < -FOV_HOR_HALF], np.array([np.sin(-FOV_HOR_HALF+np.pi/2), 0, np.cos(-FOV_HOR_HALF+np.pi/2)]))
             # up
-            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) > (BORDER-90) * (np.pi/180), np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) > (BORDER-90) * (np.pi/180))]
-            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) < (BORDER-90) * (np.pi/180), lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) < (BORDER-90) * (np.pi/180)], np.array([0, np.sin(BORDER * (np.pi/180)), np.cos(BORDER * (np.pi/180))]))
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) >= -FOV_VERT_HALF, np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) >= -FOV_VERT_HALF)]
+            edges = planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) < -FOV_VERT_HALF, lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) < -FOV_VERT_HALF], np.array([0, np.sin(-FOV_VERT_HALF+np.pi/2), np.cos(-FOV_VERT_HALF+np.pi/2)]))
             # down
-            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) < (90-BORDER) *(np.pi/180), np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) < (90-BORDER)*(np.pi/180))]
-            planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) > (90-BORDER) *(np.pi/180), lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) > (90-BORDER)*(np.pi/180)], np.array([0, np.sin(-BORDER * (np.pi/180)), np.cos(-BORDER * (np.pi/180))]))
+            edges = edges[np.logical_or(np.arctan(edges[:, 0, 1] / edges[:, 0, 2]) <= FOV_VERT_HALF, np.arctan(edges[:, 1, 1] / edges[:, 1, 2]) <= FOV_VERT_HALF)]
+            edges = planeIntersect(edges, [lambda x: np.arctan(x[:, 0, 1] / x[:, 0, 2]) > FOV_VERT_HALF, lambda x: np.arctan(x[:, 1, 1] / x[:, 1, 2]) > FOV_VERT_HALF], np.array([0, np.sin(FOV_VERT_HALF-np.pi/2), np.cos(FOV_VERT_HALF-np.pi/2)]))
            
-            print((np.arctan(edges[:, :, 0]/edges[:, :, 2]) * 180/np.pi), edges[:, :, 2])
-
             if edges.size > 1:
                 culled_planes.append(edges)
             
