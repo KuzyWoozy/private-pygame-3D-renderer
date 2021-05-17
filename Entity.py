@@ -15,8 +15,6 @@ FOV_HOR_HALF: float = FOV_HOR/2
 CULL_OFFSET: float = 0
 
 
-
-
 class Entity(ABC):
     def __init__(self, colour: Tuple[int, int, int]) -> None:
         global FOV_HALF, SCREEN_SIZE
@@ -39,42 +37,41 @@ class Entity(ABC):
         
 
         def planeIntersect(poly: np.ndarray, mask_func: Callable[[np.ndarray, int], np.ndarray], hyperplane: np.ndarray) -> np.ndarray:
-            seal = []
-            for i in range(0,2):
-                mask: np.ndarray = mask_func(poly, i)
-                if (poly[mask].size > 0):
-                    P = poly[mask, 0]
-                    Q = poly[mask, 1]
-                    PQ_diff = P-Q
+            masks: np.ndarray = np.array([mask_func(poly, 0), mask_func(poly, 1)])
+            if ((~masks).all()):
+                return poly
+
+            seal = np.empty((2,3))
+            seal.fill(np.nan)
+            for i, mask in enumerate(masks):
+                if (~mask).all():
+                    continue
+                P = poly[mask, 0]
+                Q = poly[mask, 1]
+                PQ_diff = P-Q
                     
-                    denominator = PQ_diff.dot(hyperplane)
-                    t = np.empty(PQ_diff.shape[0])
-                    t[np.abs(denominator) < 1e-2] = 1
-                    t[np.abs(denominator) >= 1e-2] = np.array(([0, 0, CULL_OFFSET]-Q[np.abs(denominator) >= 1e-2]).dot(hyperplane)/denominator[np.abs(denominator) >= 1e-2])
+                denominator = PQ_diff.dot(hyperplane)
+                t = np.empty(PQ_diff.shape[0])
+                t[np.abs(denominator) < 1e-2] = 1
+                t[np.abs(denominator) >= 1e-2] = np.array(([0, 0, CULL_OFFSET]-Q[np.abs(denominator) >= 1e-2]).dot(hyperplane)/denominator[np.abs(denominator) >= 1e-2])
 
-                    projected_points = (PQ_diff * np.expand_dims(t, 0).transpose()) + Q
-                    poly[mask, i] = projected_points
-                    seal.extend(projected_points)
+                projected_points = (PQ_diff * np.expand_dims(t, 0).transpose()) + Q
+                poly[mask, i] = projected_points
+                seal[1-i] = projected_points
 
-            if len(seal) > 1:
-                poly = np.insert(poly, (np.nonzero(mask)[-1] + 1) % len(poly), np.array(seal[::-1]), axis=0)
-            
+            if not np.isnan(np.sum(seal)):
+                # Slight assumption abuse, technically true in all cases
+                # Because of the way we delete unwanted edges
+                # Doesnt look nice thou
+                m = masks[0] | masks[1]
+                p = np.argwhere(m)
+                if (np.abs(p[0] - p[1])) == 1:
+                    z = p[-1]
+                else:
+                    z = p[0]
+                poly = np.insert(poly, z, seal, axis=0)
             return poly
             
-            """
-            inverse_mask = ~edges_mask
-            dEdges = np.argwhere(inverse_mask)
-            elements = inverse_mask.shape[1]
-            if dEdges.size > 0:
-                print(dEdges)
-                dEdges_next = (np.append(dEdges, np.zeros((1, dEdges.shape[0])).transpose(), axis=1)).astype(np.int)
-                dEdges_next[:, 1] = (dEdges[:, 1] + 1) % elements
-                dEdges_prev = (np.append(dEdges, np.ones((1, dEdges.shape[0])).transpose(), axis=1)).astype(np.int)
-                dEdges_prev[:, 1] = (dEdges[:, 1] - 1) % elements 
-                edges[inverse_mask, 0] = edges[(dEdges_prev[:, 0].transpose(), dEdges_prev[:, 1].transpose(), dEdges_prev[:, 2].transpose())]
-                edges[inverse_mask, 1] = edges[(dEdges_next[:, 0].transpose(), dEdges_next[:, 1].transpose(), dEdges_next[:, 2].transpose())]
-              """
-            return edges
         
         modified_edges = []
         for poly in edges:
@@ -141,8 +138,7 @@ class Entity(ABC):
                   
 
     def blit(self, surf: pg.surface.Surface) -> None:
-        global SCREEN_SIZE
-        
+        global SCREEN_SIZE 
        
         # Culling
         dots_mask = self.dots[:, 2] > 1e-2
@@ -156,9 +152,7 @@ class Entity(ABC):
             return
         """ 
 
-        edges = self.generateEdges()
-        edges = Entity.cull(edges)
-
+        edges = Entity.cull(self.generateEdges())
 
         # Ugly ik, but there isn't a clean way to handle numpy arrays of arbitary dimensions
         modified_edges = []
@@ -197,8 +191,6 @@ class Rectangle(Entity):
 
         self.size: np.ndarray = np.array([size[0], size[1], size[2]])
         
-        self.edge_width: int = 2
-
         dots_mask: np.ndarray = np.array([
                             [-1, -1, -1],
                             [1, -1, -1],
@@ -211,7 +203,9 @@ class Rectangle(Entity):
                             ], dtype=np.float64)
         
         self.dots = center + ((self.size/2) * dots_mask)
-        self.dots_t = np.transpose(self.dots, (1, 0))
+        self.dots_t = self.dots.transpose((1, 0))
+
+        self.edge_width: int = 2
 
         self.rotate(angle[0], angle[1], angle[2])
 
