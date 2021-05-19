@@ -29,8 +29,47 @@ class Entity(ABC):
         
     def move(self, x_dist: float, y_dist: float, z_dist: float) -> None:
         self.dots += np.array([x_dist, y_dist, z_dist])
+    """
+    @staticmethod
+    def polyAssemble(edges: List[np.ndarray]) -> List[np.ndarray]:
+        if len(edges) == 0:
+            return edges
+        new_edges = []
+        for poly in edges:
+            if poly.shape[0] == 0:
+                continue
+            new_poly = np.zeros(poly.shape)
+            edge1 = poly[0]
+            new_poly[0] = edge1
+            count = 1
+            loop = True
+            while(loop):
+                for edge2 in poly:
+                    if not (np.abs(edge1 - edge2).sum() < 1e-2):
 
-    
+                        if (np.abs(edge1[1] - edge2[0]) < 1e-2).all():
+                            # check if we made a cycle
+                            if (np.abs(edge2-poly[0]) < 1e-2).all():
+                                loop = False
+                                break
+                            new_poly[count] = edge2
+                            count += 1
+                            edge1 = edge2
+                            break
+
+                        if (np.abs(edge1[1] - edge2[1]) < 1e-2).all():
+# check if we made a cycle
+                            edge2 = edge2[::-1]
+                            if (np.abs(edge2-poly[0]) < 1e-2).all():
+                                loop = False
+                                break
+                            new_poly[count] = edge2
+                            count += 1
+                            edge1 = edge2
+                            break
+            new_edges.append(new_poly)
+        return new_edges
+    """
     @staticmethod
     def cull(edges: List[np.ndarray]) -> List[np.ndarray]:
         global CULL_OFFSET
@@ -57,19 +96,35 @@ class Entity(ABC):
 
                 projected_points = (PQ_diff * np.expand_dims(t, 0).transpose()) + Q
                 poly[mask, i] = projected_points
-                seal[1-i] = projected_points
+
+                seal[i] = projected_points 
 
             if not np.isnan(np.sum(seal)):
-                # Slight assumption abuse, technically true in all cases
-                # Because of the way we delete unwanted edges
-                # Doesnt look nice thou
-                m = masks[0] | masks[1]
-                p = np.argwhere(m)
-                if (np.abs(p[0] - p[1])) == 1:
-                    z = p[-1]
+                p = np.argwhere(masks[0] | masks[1])
+                if poly.shape[0] > 2:
+                    if (np.abs(p[0] - p[1])) == 1:
+                        z = p[-1]
+                    else:
+                        z = p[0]
+
+                    if (np.abs(seal[1] - poly[z, 0]) < 1e-2).all():
+                        poly = np.insert(poly, z, seal, axis=0)
+                    else:
+                        poly = np.insert(poly, z, seal[::-1], axis=0)
                 else:
-                    z = p[0]
-                poly = np.insert(poly, z, seal, axis=0)
+                    if (np.abs(seal[1] - poly[1, 0]) < 1e-2).all():
+                        poly = np.insert(poly, 1, seal, axis=0)
+                    elif (np.abs(seal[0] - poly[1, 0]) < 1e-2).all():
+                        poly = np.insert(poly, 1, seal[::-1], axis=0)
+                    elif (np.abs(seal[1] - poly[0, 0]) < 1e-2).all():
+                        poly = np.insert(poly, 0, seal, axis=0)
+                    else:
+                        poly = np.insert(poly, 0, seal[::-1], axis=0)
+   
+                                    
+                
+                
+                
             return poly
             
         
@@ -141,19 +196,13 @@ class Entity(ABC):
         global SCREEN_SIZE 
        
         # Culling
-        dots_mask = self.dots[:, 2] > 1e-2
-        
-        """ Optimizations, commented out for now to prevent hidden bugs
+        dots_mask = self.dots[:, 2] > 1e-2 
         
         if (~dots_mask).all():
             return
         
-        if not np.logical_and((np.abs(np.arctan(self.dots[dots_mask, 0] / self.dots[dots_mask, 2]) < FOV_HOR_HALF).any()), (np.abs(np.arctan(self.dots[dots_mask, 1] / self.dots[dots_mask, 2])) < FOV_VERT_HALF).any()):
-            return
-        """ 
-
         edges = Entity.cull(self.generateEdges())
-
+        
         # Ugly ik, but there isn't a clean way to handle numpy arrays of arbitary dimensions
         modified_edges = []
         for poly in edges:
@@ -216,9 +265,9 @@ class Rectangle(Entity):
 
                 np.array([[self.dots[1], self.dots[2]], [self.dots[2], self.dots[6]], [self.dots[6], self.dots[5]], [self.dots[5], self.dots[1]]]),
                 np.array([[self.dots[2], self.dots[3]], [self.dots[3], self.dots[7]], [self.dots[7], self.dots[6]], [self.dots[6], self.dots[2]]]),
-                np.array([[self.dots[3], self.dots[7]], [self.dots[7], self.dots[4]], [self.dots[4], self.dots[0]], [self.dots[0], self.dots[3]]]),
-                np.array([[self.dots[0], self.dots[1]], [self.dots[1], self.dots[2]], [self.dots[2], self.dots[3]], [self.dots[3], self.dots[0]]]),
-                np.array([[self.dots[4], self.dots[5]], [self.dots[5], self.dots[6]], [self.dots[6], self.dots[7]], [self.dots[7], self.dots[4]]])
+                np.array([[self.dots[3], self.dots[0]], [self.dots[0], self.dots[4]], [self.dots[4], self.dots[7]], [self.dots[7], self.dots[3]]]),
+                np.array([[self.dots[0], self.dots[3]], [self.dots[3], self.dots[2]], [self.dots[2], self.dots[1]], [self.dots[1], self.dots[0]]]),
+                np.array([[self.dots[4], self.dots[7]], [self.dots[7], self.dots[6]], [self.dots[6], self.dots[5]], [self.dots[5], self.dots[4]]])
             ]
 
 
