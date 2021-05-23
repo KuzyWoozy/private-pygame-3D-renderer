@@ -1,10 +1,9 @@
 import pygame as pg
-import numpy as np
 
 from Config import *
 from typing import Dict, Any
 from Entity import Rectangle
-
+from Util import heapSort
 
 
 class Environment3D:
@@ -17,7 +16,8 @@ class Environment3D:
                 s - Rotate the world about the x-axis in positive direction
                 d - Rotate the world about the y-axis in negative direction
                 a - Rotate the world about the y-axis in positive direction
-                z - Rotate the world about the z-axis in negative direction                x - Rotate the world about the z-axis in positive direction
+                z - Rotate the world about the z-axis in negative direction         
+                x - Rotate the world about the z-axis in positive direction
 
 
             Movement:
@@ -25,14 +25,14 @@ class Environment3D:
                 q - Move backward
         """
         self.keycodes: Dict[int, Dict[str, Any]] = dict([
-                (pg.K_w, {"func": lambda : self.rotate(-np.pi/180 * ROTATION_ANGLE, 0, 0)}),
-                (pg.K_s, {"func": lambda : self.rotate(np.pi/180 * ROTATION_ANGLE,0, 0)}),
-                (pg.K_d, {"func": lambda : self.rotate(0, -np.pi/180 * ROTATION_ANGLE, 0)}),
-                (pg.K_a, {"func": lambda : self.rotate(0, np.pi/180 * ROTATION_ANGLE, 0)}),
+                (pg.K_w, {"func": lambda : self.rotate(-ROTATION_ANGLE, 0, 0)}),
+                (pg.K_s, {"func": lambda : self.rotate(ROTATION_ANGLE,0, 0)}),
+                (pg.K_d, {"func": lambda : self.rotate(0, -ROTATION_ANGLE, 0)}),
+                (pg.K_a, {"func": lambda : self.rotate(0, ROTATION_ANGLE, 0)}),
                 (pg.K_q, {"func": lambda : self.move(0, 0, -MOVEMENT_DISTANCE)}),
                 (pg.K_e, {"func": lambda : self.move(0, 0, MOVEMENT_DISTANCE)}), 
-                (pg.K_z, {"func": lambda : self.rotate(0, 0, -np.pi/180 * ROTATION_ANGLE)}),
-                (pg.K_x, {"func": lambda : self.rotate(0, 0, np.pi/180 * ROTATION_ANGLE)}), 
+                (pg.K_z, {"func": lambda : self.rotate(0, 0, -ROTATION_ANGLE)}),
+                (pg.K_x, {"func": lambda : self.rotate(0, 0, ROTATION_ANGLE)}), 
                 ])
 
         for key in self.keycodes:
@@ -45,9 +45,10 @@ class Environment3D:
 
         self.entities = [
                 Rectangle((0,0,200), (100, 100, 100), (0,0,0)),
-                #Rectangle((0,0,300), (50, 50, 50), (0,0,0)),
+                Rectangle((0,0,300), (50, 50, 50), (0,0,0)),
                 #Rectangle((0,75,100), (50, 50, 50), (0,0,0)),
                 #Rectangle((0,-75,100), (50, 50, 50), (0,0,0)),
+            
                 ]
 
 
@@ -79,8 +80,11 @@ class Environment3D:
             self._processKeys()
              
             self.display.fill((255,255,255))
-            for entity in self.entities:
+           
+            sorted_entities = heapSort(self.entities)
+            for entity in sorted_entities:
                 entity.blit(self.display)
+            
             pg.display.update()
 
             self.clock.tick(60)
