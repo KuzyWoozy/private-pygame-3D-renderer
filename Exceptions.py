@@ -1,4 +1,0 @@
-
-
-class DoesNotInheritSortableException(Exception):
-    pass
