@@ -26,14 +26,14 @@ class Environment3D:
                 q - Move backward
         """
         self.keycodes: Dict[int, Dict[str, Any]] = dict([
-                (pg.K_w, {"func": lambda : self.rotate(-ROTATION_ANGLE, 0, 0)}),
-                (pg.K_s, {"func": lambda : self.rotate(ROTATION_ANGLE,0, 0)}),
-                (pg.K_d, {"func": lambda : self.rotate(0, -ROTATION_ANGLE, 0)}),
-                (pg.K_a, {"func": lambda : self.rotate(0, ROTATION_ANGLE, 0)}),
-                (pg.K_q, {"func": lambda : self.translate(0, 0, -MOVEMENT_DISTANCE)}),
-                (pg.K_e, {"func": lambda : self.translate(0, 0, MOVEMENT_DISTANCE)}), 
-                (pg.K_z, {"func": lambda : self.rotate(0, 0, -ROTATION_ANGLE)}),
-                (pg.K_x, {"func": lambda : self.rotate(0, 0, ROTATION_ANGLE)}), 
+                (pg.K_w, {"func": lambda delta : self.rotate(-ROTATION_ANGLE * delta, 0, 0)}),
+                (pg.K_s, {"func": lambda delta : self.rotate(ROTATION_ANGLE * delta,0, 0)}),
+                (pg.K_d, {"func": lambda delta : self.rotate(0, -ROTATION_ANGLE * delta, 0)}),
+                (pg.K_a, {"func": lambda delta : self.rotate(0, ROTATION_ANGLE * delta, 0)}),
+                (pg.K_q, {"func": lambda delta : self.move(0, 0, -MOVEMENT_DISTANCE * delta)}),
+                (pg.K_e, {"func": lambda delta : self.move(0, 0, MOVEMENT_DISTANCE * delta)}), 
+                (pg.K_z, {"func": lambda delta : self.rotate(0, 0, -ROTATION_ANGLE * delta)}),
+                (pg.K_x, {"func": lambda delta : self.rotate(0, 0, ROTATION_ANGLE * delta)}), 
                 ])
 
         for key in self.keycodes:
@@ -44,18 +44,18 @@ class Environment3D:
         self.display: pg.surface.Surface = pg.display.set_mode(SCREEN_SIZE)
 
 
-        self.entities = [Rectangle((0,0,200), (20, 20, 20), (0,0,0), (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)), (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))) for _ in range(0, 20)]
+        self.entities = [Rectangle((0,0,200), (20, 20, 20), (0,0,0), (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)), (random.uniform(-30, 30), random.uniform(-30, 30), random.uniform(-30, 30))) for _ in range(0, 10)]
 
 
     def rotate(self, x_rot: float, y_rot: float, z_rot: float) -> None:
         for entity in self.entities:
             entity.rotate(x_rot, y_rot, z_rot)
     
-    def translate(self, x_mov: float, y_mov: float, z_mov: float) -> None:
+    def move(self, x_mov: float, y_mov: float, z_mov: float) -> None:
         for entity in self.entities:
-            entity.translate(x_mov, y_mov, z_mov)
+            entity.move(x_mov, y_mov, z_mov)
 
-    def _processKeys(self) -> None:
+    def _processKeys(self, delta: float) -> None:
         for event in pg.event.get():
             if (event.type == pg.KEYDOWN or event.type == pg.KEYUP):
                 if (event.type == pg.KEYDOWN):
@@ -68,16 +68,18 @@ class Environment3D:
         for key in self.keycodes:
             if (key in self.keycodes):
                 if (self.keycodes[key]["flag"]):
-                    self.keycodes[key]["func"]()
+                    self.keycodes[key]["func"](delta)
 
     def run(self) -> None:
+        delta = 0
         while True:
-            self._processKeys()
+            self._processKeys(delta)
              
             self.display.fill((255,255,255))
            
             for entity in self.entities:
-                entity.move()
+                vel = entity.velocity * delta
+                entity.move(vel[0], vel[1], vel[2])
 
             sorted_entities = heapSort(self.entities)
             for entity in sorted_entities:
@@ -85,7 +87,7 @@ class Environment3D:
             
             pg.display.update()
 
-            self.clock.tick(60)
+            delta = self.clock.tick(60) / 1000
             
 
 

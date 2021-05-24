@@ -51,15 +51,9 @@ class Entity(Sortable):
 
         self.velocity: np.ndarray = np.array(velocity, dtype=DTYPE)
         
-    def translate(self, x_dist: float, y_dist: float, z_dist: float) -> None:
+    def move(self, x_dist: float, y_dist: float, z_dist: float) -> None:
         """Translate the object in x, y, z directions respectively by the specified magnitude."""
         self.dots += np.array([x_dist, y_dist, z_dist], dtype=DTYPE)
-
-    def velocity(self, x: float, y: float, z: float) -> None:
-        self.velocity = np.array([x, y, z], dtype=DTYPE)
-
-    def move(self) -> None:
-        self.dots += self.velocity
 
     @staticmethod
     def cull(edges: List[np.ndarray]) -> List[np.ndarray]:
