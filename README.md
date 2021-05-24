@@ -7,4 +7,5 @@ pygame==2.0.1
 ```
 python main.py
 ```
-![txt](images/img.png?raw=True)
+### Pictures:
+![txt](images/img.png)
